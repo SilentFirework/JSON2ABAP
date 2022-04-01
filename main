@@ -1,0 +1,113 @@
+背景：
+近期sap接口交互项目比较多, json格式数据交互由于其便利性占有绝对比例，其中json格式数据解析目前也很成熟,标准的，开源均有，参考；但是使用过程中均需要预定义对应的abap数据结构，如果遇到数据纵深层级较多或者字段较多，则会很麻烦。
+主要目的
+根据输入的json字符串,输出对应的ABAP数据对象及数据声明语句，简化开发过程。
+次要目的
+集成测试接口过程中常用到对数据的转译，格式美化功能，虽然这些一般在notepad++中操作即可。
+
+思路：
+1. 正常的json解析，只是不再使用rtts反射abap数据进行数据赋值，而是根据json数据格式动态生成对应的ABAP数据。
+2. 解析时以结构块和数据组块为一个数据对象声明语句，逐层声明。
+3. 可使用生成的数据声明动态生成数据对象并解析。
+
+整体设计
+1. 使用cl_demo_text完成数据输入交互
+2. json数据转换-rtts动态数据对象
+2.1 处理换行符,等特殊字符避免干扰字符串位移
+2.2 逐个字符判断并解析json字符串,遇结构或内表格式递归至下一层，直至单个字段的处理
+2.3 根据字符分为字符串（含日期，时间），数值，布尔，数组，结构类型，分别处理
+2.4 数据声明，增加参数递归深度及递归上一层字段名在结构和数组处理逻辑处生成对应声明，纵深结构则用like，底层字段用type，逐级声明。
+3. json数据转换-动态声明并解析
+3.1 处理json字符串获得数据声明
+3.2 根据数据声明动态生成数据对象
+3.3 调用标准方法解析json数据
+4. json数据格式化
+3.1 排除特殊字符干扰
+3.2 根据特殊符号判断是否换行，空格对齐,每行数据对应内表一行
+3.3 最后根据换行符拼接
+5. json数据转译和反转译
+
+操作步骤
+直接执行类，如下六个静态方法
+ 
+CONVERT_JSON_DECLARE  使用动态声明语句方式来映射json数组
+CONVERT_JSON 使用rtts来动态生成json对应数据对象
+ PRETTY_PRINT_JSON		格式化
+UNESCAPE  反转译
+ESCAPE  转译
+CHANGE_JSON 测试过程中更改json字符串
+
+直接执行静态方法使用对应功能，仅在第一次执行方法时弹出json字符串输入窗口，后续修改处理json字符串需要使用方法CHANGE_JSON更改当前处理的json字符串。
+以CONVERT_JSON_DECLARE为例，执行时输入要处理的json字符串
+弹窗输出声明语句，具体返回的数据为数据引用，可在debug模式下查看
+ 
+
+ 
+实例方法DESERIALIZE_JSON_DECLARE_MAIN和DESERIALIZE_JSON可以无需预定义abap数据对象解析json数据。
+
+测试场景
+1. 数值格式
+{"NEGATIVE_I":-1,"POSITIVE_I":10000,"POSITIVE_N":1,"NEGATIVE_F":-1.7976931348623158E+30,"POSITIVE_B":255,"NEGATIVE_S":-32768,"NEGATIVE_P":-2343.342454332245,"QUAN":10000000.000}
+
+ 
+
+ 
+2. 布尔格式
+{"BOOL_TRUE":true,"BOOL_FALSE":false,"TRIBOOL_TRUE":true,"TRIBOOL_FALSE":false,"TRIBOOL_UNDEFINED":null,"X_BOOL_TRUE":true,"X_BOOL_FALSE":false,"X_TRIBOOL_TRUE":true,"X_TRIBOOL_FALSE":false,"X_TRIBOOL_UNDEFINED":null}
+
+ 
+
+ 
+3.简单json字符串
+{"FLAG":true,"CHAR":"\"TEST\\\"/C:\\temp","NUMC":12345678,"STRING":"ABCDEFG","XSTRING":"q83v","INTEGER":42,"FLOAT":3.1415926535897900E+00,"PACKED":3.141593,"HEX":"AAAAAAAAOt5osQ==","GUID":"","TSL":20151002134450.5545900,"TSL2":20191227160050.4540000,"TS":20160708123456,"DATE":"2016-07-08","TIME":"12:34:56"}
+
+ 
+
+ 
+4. 数组
+[{"key1":"k100","key2":0,"value1":"v100"},{"key1":"k101","key2":1,"value1":"v101"},{"key1":"k102","key2":2,"value1":"v102"}]
+
+ 
+
+ 
+5. 简单纵深
+{"k1000v100":{"key1":"k100","key2":0,"value1":"v100"},"k1011v101":{"key1":"k101","key2":1,"value1":"v101"},"k1022v102":{"key1":"k102","key2":2,"value1":"v102"}}
+
+ 
+
+ 
+
+{"formFactors":{"appDefault":true,"manual":{"desktop":false,"tablet":true,"phone":true}}}
+
+ 
+
+ 
+6. 复杂纵深-无结构数组处理
+[{"index":1,"user":"USER1","client":"000","ff":{"desktop":false,"tablet":true,"phone":false},"strings":["ABC","BCD"],"desktop":true,"tablet":false,"phone":true},{"index":2,"user":"USER2","client":"111","ff":{"desktop":true,"tablet":true,"phone":false},"strings":["DEF"],"desktop":false,"tablet":false,"phone":true}]
+
+ 
+
+
+7. 特殊字符，比如换行回车等
+{ "$schema": ":",  "*odata_context": "*&!^,()", "AbapName": "{}[]\\"}
+验证失败，rtts类创建动态数据对象时，不允许字段名使用字母数字下划线以外的字符，且字符不能以数字开头。
+更换解析方式
+ 
+
+ 
+
+数据
+{ "schema": ":",  "odata_context": "*&!^,()", "AbapName": "{}[]\\"}
+
+ 
+ 
+
+8. 字段名超过30位数据
+ { "Exceed_Thirty_Character_Test_Field": ":*&!^,(){}[]\\"}	 
+截取前30位处理，声明动态会丢失数据
+
+问题:
+1. 只有string,number,date,time,boole 类型,无法准确对ABAP数据类型定位,比如xstring等
+2. 遇到有出口转换的字段不会转换
+3. 注意json字段名的命名符合sap规范
+ 
